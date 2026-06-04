@@ -23,7 +23,7 @@ endpoint (an Ed25519 fixture key).
 ## Demo
 
 ```bash
-python clients/signed-bot.py http://127.0.0.1:8080/anything
+uv run clients/signed_bot.py http://127.0.0.1:8080/anything
 ```
 
 Access-log row:

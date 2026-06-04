@@ -38,7 +38,7 @@ The fields the operator queries on:
 ## Demo
 
 ```bash
-python clients/mcp-tool-call.py http://127.0.0.1:8080/mcp/v1
+uv run clients/mcp_tool_call.py http://127.0.0.1:8080/mcp/v1
 ```
 
 The client sends a `tools/call` for `delete_file` with the

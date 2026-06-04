@@ -8,10 +8,11 @@
 #
 # Prerequisites:
 #   * `docker compose up -d` is healthy.
-#   * `clients/` deps installed in a venv:
-#       python -m venv .venv
-#       source .venv/bin/activate
-#       pip install pynacl 'python-jose[cryptography]'
+#   * `uv sync` has installed the scenario clients' Python deps
+#     into ./.venv (uv from https://docs.astral.sh/uv).
+#
+# Every client invocation below goes through `uv run` so the
+# right interpreter and deps are picked up automatically.
 
 set -euo pipefail
 
@@ -57,14 +58,14 @@ wait_for_proxy
 bar "1. Agent detection"
 echo
 echo ">>> claude-code-like client (expect identified as claude-code-cli)"
-python clients/claude-code-like.py "$PROXY_URL/anything" | head -3
+uv run clients/claude_code_like.py "$PROXY_URL/anything" | head -3
 echo
 echo ">>> last access-log row:"
 tail_access 1 | jq '{agent_id: .request.agent.id, score: .request.agent.score, provenance: .request.agent.provenance}'
 
 echo
 echo ">>> unsigned-scraper (expect no agent_id; trust_tier = Unknown or Suspicious)"
-python clients/unsigned-scraper.py "$PROXY_URL/anything" | head -3
+uv run clients/unsigned_scraper.py "$PROXY_URL/anything" | head -3
 echo
 echo ">>> last access-log row:"
 tail_access 1 | jq '{agent_id: .request.agent.id, provenance: .request.agent.provenance, trust_tier: .request.trust_tier}'
@@ -72,7 +73,7 @@ tail_access 1 | jq '{agent_id: .request.agent.id, provenance: .request.agent.pro
 bar "2. Web Bot Auth verification"
 echo
 echo ">>> signed-bot client (expect bot_auth.verified=true, trust_tier=VerifiedSigned)"
-python clients/signed-bot.py "$PROXY_URL/anything" | head -3
+uv run clients/signed_bot.py "$PROXY_URL/anything" | head -3
 echo
 echo ">>> last access-log row:"
 tail_access 1 | jq '{verified: .request.bot_auth.verified, trust_tier: .request.trust_tier}'
@@ -80,9 +81,9 @@ tail_access 1 | jq '{verified: .request.bot_auth.verified, trust_tier: .request.
 bar "3. AP2 mandate verification (ENTERPRISE)"
 echo
 echo ">>> ap2-payment client (expect 200, mandate verified, audit envelope)"
-python clients/ap2-payment.py "$PROXY_URL/anything" | head -3
+uv run clients/ap2_payment.py "$PROXY_URL/anything" | head -3
 echo ">>> ap2-replay (expect first=200, second=409 Conflict)"
-python clients/ap2-replay.py "$PROXY_URL/anything"
+uv run clients/ap2_replay.py "$PROXY_URL/anything"
 echo
 echo ">>> last audit-log row (the MandateVerified event):"
 tail_audit 1 | jq '{action: .action, target: .target, result: .result}' 2>/dev/null || echo "(enterprise audit not enabled; skip)"
@@ -90,12 +91,12 @@ tail_audit 1 | jq '{action: .action, target: .target, result: .result}' 2>/dev/n
 bar "4. Agent budget enforcement"
 echo
 echo ">>> 50 req/s burst from the claude-code-like client (expect 429s)"
-python clients/agent-budget-burst.py --duration-secs 5 "$PROXY_URL/anything"
+uv run clients/agent_budget_burst.py --duration-secs 5 "$PROXY_URL/anything"
 
 bar "5. Prompt-linked audit (ENTERPRISE)"
 echo
 echo ">>> mcp-tool-call client (expect McpPromptLinkedAudit envelope)"
-python clients/mcp-tool-call.py "$PROXY_URL/mcp/v1" | head -5 || true
+uv run clients/mcp_tool_call.py "$PROXY_URL/mcp/v1" | head -5 || true
 echo
 echo ">>> last audit-log row:"
 tail_audit 1 | jq '{tool: .tool_name, prompt_digest, prompt_excerpt, agent_id, human_sponsor}' 2>/dev/null || echo "(enterprise audit not enabled; skip)"

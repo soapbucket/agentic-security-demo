@@ -14,8 +14,13 @@ import sys
 import time
 
 # Reuse the minting helper from the happy-path client so both
-# scenarios share the SD-JWT shape.
-from ap2_payment import mint_cart_mandate  # type: ignore  # script-side import
+# scenarios share the SD-JWT shape. `uv run` sets cwd to the
+# repo root, so make sure the sibling client is importable
+# regardless of where the script is invoked from.
+import os.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# pylint: disable=import-error,wrong-import-position
+from ap2_payment import mint_cart_mandate  # type: ignore  # sibling script
 
 import urllib.request
 

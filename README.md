@@ -12,8 +12,13 @@ audit, and per-request trust tiers.
 git clone https://github.com/soapbucket/agentic-security-demo
 cd agentic-security-demo
 docker compose up -d
+uv sync                    # installs the scenario clients' Python deps
 ./scripts/walkthrough.sh
 ```
+
+The walkthrough drives each scenario client via `uv run` so you
+do not need to activate the venv by hand. Install `uv` per
+<https://docs.astral.sh/uv/getting-started/installation/>.
 
 The walkthrough script drives every scenario in order and prints
 the relevant lines from the access log / audit log as each lands.
@@ -75,18 +80,20 @@ each capability via:
 agentic-security-demo/
 ├── README.md                  ◀ you are here
 ├── LICENSE                    ◀ Apache-2.0
+├── pyproject.toml             ◀ uv sync installs the client deps
 ├── docker-compose.yml         ◀ the full stack
 ├── sbproxy-config/
 │   └── sb.yml                 ◀ proxy config wiring all 6 scenarios
 ├── mock-origin/               ◀ httpbin-shaped target API
 │   └── server.py
-├── clients/                   ◀ one client per scenario
-│   ├── claude-code-like.py
-│   ├── unsigned-scraper.py
-│   ├── signed-bot.py
-│   ├── ap2-payment.py
-│   ├── ap2-replay.py
-│   └── mcp-tool-call.py
+├── clients/                   ◀ one client per scenario, run via `uv run`
+│   ├── claude_code_like.py
+│   ├── unsigned_scraper.py
+│   ├── signed_bot.py
+│   ├── ap2_payment.py
+│   ├── ap2_replay.py
+│   ├── agent_budget_burst.py
+│   └── mcp_tool_call.py
 ├── scripts/
 │   ├── walkthrough.sh         ◀ runs every scenario in order
 │   ├── observe.sh             ◀ tails the relevant log lines

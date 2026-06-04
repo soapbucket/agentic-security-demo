@@ -41,9 +41,9 @@ Rego policy as `request.trust_tier`.
 Drive a mix of scenarios:
 
 ```bash
-python clients/signed-bot.py          http://127.0.0.1:8080/anything
-python clients/claude-code-like.py    http://127.0.0.1:8080/anything
-python clients/unsigned-scraper.py    http://127.0.0.1:8080/anything
+uv run clients/signed_bot.py          http://127.0.0.1:8080/anything
+uv run clients/claude_code_like.py    http://127.0.0.1:8080/anything
+uv run clients/unsigned_scraper.py    http://127.0.0.1:8080/anything
 ```
 
 Then histogram the recent rows:

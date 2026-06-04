@@ -31,7 +31,7 @@ the hash-chained audit log.
 ## Demo
 
 ```bash
-python clients/ap2-payment.py http://127.0.0.1:8080/anything
+uv run clients/ap2_payment.py http://127.0.0.1:8080/anything
 ```
 
 Audit-log row:
@@ -52,7 +52,7 @@ Audit-log row:
 Replay:
 
 ```bash
-python clients/ap2-replay.py http://127.0.0.1:8080/anything
+uv run clients/ap2_replay.py http://127.0.0.1:8080/anything
 ```
 
 The client sends the same Cart Mandate twice. First submission

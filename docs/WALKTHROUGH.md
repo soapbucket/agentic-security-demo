@@ -18,7 +18,7 @@ HTTP 200 with `{"status":"ready"}`.
 ## Scenario 1 — Agent detection
 
 ```bash
-python clients/claude-code-like.py http://127.0.0.1:8080/anything
+uv run clients/claude_code_like.py http://127.0.0.1:8080/anything
 docker compose exec sbproxy tail -1 /var/log/sbproxy/access.jsonl | jq .
 ```
 
@@ -26,7 +26,7 @@ Look for `request.agent.id = "claude-code-cli"` and
 `request.agent.score = 95` on the access-log row. Then:
 
 ```bash
-python clients/unsigned-scraper.py http://127.0.0.1:8080/anything
+uv run clients/unsigned_scraper.py http://127.0.0.1:8080/anything
 docker compose exec sbproxy tail -1 /var/log/sbproxy/access.jsonl | jq .
 ```
 
@@ -40,7 +40,7 @@ Detail: `docs/scenarios/01-agent-detection.md`.
 ## Scenario 2 — Web Bot Auth verification
 
 ```bash
-python clients/signed-bot.py http://127.0.0.1:8080/anything
+uv run clients/signed_bot.py http://127.0.0.1:8080/anything
 docker compose exec sbproxy tail -1 /var/log/sbproxy/access.jsonl | jq .
 ```
 
@@ -54,9 +54,9 @@ Detail: `docs/scenarios/02-web-bot-auth.md`.
 ## Scenario 3 — AP2 mandate verification (enterprise)
 
 ```bash
-python clients/ap2-payment.py http://127.0.0.1:8080/anything
+uv run clients/ap2_payment.py http://127.0.0.1:8080/anything
 docker compose exec sbproxy tail -1 /var/log/sbproxy/audit.jsonl | jq .
-python clients/ap2-replay.py http://127.0.0.1:8080/anything
+uv run clients/ap2_replay.py http://127.0.0.1:8080/anything
 ```
 
 `ap2-payment.py` returns 200 and the audit row's `action` is
@@ -70,7 +70,7 @@ Detail: `docs/scenarios/03-ap2-mandate.md`.
 ## Scenario 4 — Agent budget enforcement
 
 ```bash
-python clients/agent-budget-burst.py --duration-secs 5 \
+uv run clients/agent_budget_burst.py --duration-secs 5 \
     http://127.0.0.1:8080/anything
 ```
 
@@ -91,7 +91,7 @@ Detail: `docs/scenarios/04-agent-budget.md`.
 ## Scenario 5 — Prompt-linked audit (enterprise)
 
 ```bash
-python clients/mcp-tool-call.py http://127.0.0.1:8080/mcp/v1
+uv run clients/mcp_tool_call.py http://127.0.0.1:8080/mcp/v1
 docker compose exec sbproxy tail -1 /var/log/sbproxy/audit.jsonl | jq .
 ```
 
@@ -120,9 +120,9 @@ The trust-tier policy stamps every request the proxy serves. To
 see the spread, run a mix:
 
 ```bash
-python clients/claude-code-like.py http://127.0.0.1:8080/anything
-python clients/signed-bot.py http://127.0.0.1:8080/anything
-python clients/unsigned-scraper.py http://127.0.0.1:8080/anything
+uv run clients/claude_code_like.py http://127.0.0.1:8080/anything
+uv run clients/signed_bot.py http://127.0.0.1:8080/anything
+uv run clients/unsigned_scraper.py http://127.0.0.1:8080/anything
 
 docker compose exec sbproxy tail -10 /var/log/sbproxy/access.jsonl \
     | jq -s 'group_by(.request.trust_tier) | map({tier: .[0].request.trust_tier, count: length})'

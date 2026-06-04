@@ -31,7 +31,7 @@ fields.
 ## Demo
 
 ```bash
-python clients/claude-code-like.py http://127.0.0.1:8080/anything
+uv run clients/claude_code_like.py http://127.0.0.1:8080/anything
 ```
 
 The client mimics Claude Code's wire shape: UA prefix
@@ -56,7 +56,7 @@ The access-log row carries:
 Now the negative case:
 
 ```bash
-python clients/unsigned-scraper.py http://127.0.0.1:8080/anything
+uv run clients/unsigned_scraper.py http://127.0.0.1:8080/anything
 ```
 
 This client sends `Mozilla/5.0 (compatible; scraper/0)` with

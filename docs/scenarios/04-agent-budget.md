@@ -30,7 +30,7 @@ policies:
 ## Demo
 
 ```bash
-python clients/agent-budget-burst.py --duration-secs 5 \
+uv run clients/agent_budget_burst.py --duration-secs 5 \
     http://127.0.0.1:8080/anything
 ```
 
@@ -64,11 +64,11 @@ bucket. Demonstrate:
 
 ```bash
 # In one terminal, drive the burst:
-python clients/agent-budget-burst.py --duration-secs 10 \
+uv run clients/agent_budget_burst.py --duration-secs 10 \
     http://127.0.0.1:8080/anything &
 
 # In another, hit with a different agent (the unsigned scraper):
-python clients/unsigned-scraper.py http://127.0.0.1:8080/anything
+uv run clients/unsigned_scraper.py http://127.0.0.1:8080/anything
 ```
 
 The scraper's request returns 200 even while the

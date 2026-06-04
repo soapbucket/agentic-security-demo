@@ -1,0 +1,28 @@
+# Demo client dependencies. Use `uv` to install:
+#
+#   uv sync
+#
+# This creates a `.venv` and installs the runtime deps. Then run
+# the scenario clients with `uv run`, e.g.:
+#
+#   uv run clients/signed_bot.py http://127.0.0.1:8080/anything
+#
+# The walkthrough script wraps `uv run` for every client.
+
+[project]
+name = "agentic-security-demo-clients"
+version = "0.1.0"
+description = "Scenario clients for the SBproxy agentic-security demo."
+requires-python = ">=3.10"
+license = "Apache-2.0"
+readme = "README.md"
+
+dependencies = [
+    # Scenario 2: Ed25519 signing for the RFC 9421 Web Bot Auth client.
+    "pynacl>=1.5,<2",
+    # Scenario 3: ES256 SD-JWT minting for the AP2 Cart Mandate client.
+    "python-jose[cryptography]>=3.3,<4",
+]
+
+[tool.uv]
+package = false
