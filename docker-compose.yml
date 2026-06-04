@@ -1,0 +1,92 @@
+# Agentic Security Demo: full stack for the 6 scenarios in
+# scripts/walkthrough.sh. Brings up the proxy, its required
+# state, a mock origin, and a metrics endpoint. The scenario
+# clients live in clients/ and are run by the walkthrough.
+#
+# Tunables:
+#   SBPROXY_IMAGE_TAG      proxy image tag (default 1.0)
+#   SBPROXY_LICENSE_KEY    enterprise license; only needed for
+#                          scenarios 3, 5, 6
+#   DEMO_NAMESPACE         compose project name (default `agentic-demo`)
+
+name: agentic-demo
+
+services:
+  sbproxy:
+    # Default to the enterprise image because scenarios 3 (AP2),
+    # 5 (prompt-linked audit), and 6 (trust tier) are enterprise
+    # features. Operators that want OSS-only can override to
+    # ghcr.io/soapbucket/sbproxy:1.0 and skip those scenarios.
+    image: ghcr.io/soapbucket/sbproxy-enterprise:${SBPROXY_IMAGE_TAG:-1.0}
+    container_name: agentic-demo-sbproxy
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-origin:
+        condition: service_started
+    environment:
+      # Read at boot. Missing or invalid license disables
+      # scenarios 3, 5, 6 (the proxy still runs).
+      SBPROXY_LICENSE_KEY: ${SBPROXY_LICENSE_KEY:-}
+      # Tell the proxy where its state lives.
+      DATABASE_URL: postgres://sbproxy:demo@postgres/sbproxy
+      REDIS_URL: redis://redis:6379/0
+      RUST_LOG: info,sbproxy=info,sbproxy_modules=info
+    command:
+      - serve
+      - --config
+      - /etc/sbproxy/sb.yml
+    ports:
+      - "127.0.0.1:8080:8080"   # proxy data plane
+      - "127.0.0.1:9090:9090"   # metrics + readyz
+    volumes:
+      - ./sbproxy-config:/etc/sbproxy:ro
+      - sbproxy-logs:/var/log/sbproxy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentic-demo-postgres
+    environment:
+      POSTGRES_USER: sbproxy
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: sbproxy
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sbproxy -d sbproxy"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: agentic-demo-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mock-origin:
+    # Tiny Flask server that echoes the inbound request as JSON,
+    # stands in for the protected API the agents are calling.
+    # Built from mock-origin/Dockerfile so the demo does not pull
+    # an external image for the upstream.
+    build:
+      context: ./mock-origin
+    container_name: agentic-demo-mock-origin
+    expose:
+      - "3000"
+
+volumes:
+  sbproxy-logs:
+  postgres-data:

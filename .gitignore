@@ -1,0 +1,16 @@
+.DS_Store
+*.swp
+*.swo
+*~
+.venv/
+venv/
+__pycache__/
+*.pyc
+.python-version
+
+# Per-run state
+.env
+.env.local
+
+# Audit / log volumes shouldn't land in source control
+*.jsonl

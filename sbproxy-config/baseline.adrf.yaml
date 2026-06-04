@@ -1,0 +1,29 @@
+# ADRF v0 baseline pack used by the demo's agent_detect step.
+# Same shape as the spec at github.com/soapbucket/adrf-spec;
+# trimmed to the two agent fingerprints the demo's clients carry
+# so the scenario output stays uncluttered.
+
+version: 0
+agents:
+  # Scenario 1: the demo's `claude-code-like` client mimics the
+  # Claude Code CLI's UA + Stainless SDK header set. Matches at
+  # high confidence; the trust-tier policy resolves to
+  # BehaviouralTrusted (unsigned-named).
+  - id: claude-code-cli
+    match:
+      user_agent_pattern: '^claude-cli/'
+      header_present:
+        - x-stainless-arch
+    provenance: unsigned-named
+    score: 95
+    confidence: 0.95
+
+  # Scenario 2: the demo's `signed-bot` client carries the
+  # OpenAI-Operator UA prefix. Matches; pairs with bot_auth in
+  # the policy stack to escalate to VerifiedSigned.
+  - id: openai-operator
+    match:
+      user_agent_pattern: '^openai-operator/'
+    provenance: unsigned-named
+    score: 90
+    confidence: 0.9
