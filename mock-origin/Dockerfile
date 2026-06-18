@@ -9,4 +9,4 @@ RUN pip install --no-cache-dir flask==3.0.* gunicorn==21.*
 COPY server.py /app/server.py
 
 EXPOSE 3000
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:3000", "server:app"]
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:3000", "server:app"]

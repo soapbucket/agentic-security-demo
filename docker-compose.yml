@@ -1,23 +1,21 @@
 # Agentic Security Demo: full stack for the 6 scenarios in
-# scripts/walkthrough.sh. Brings up the proxy, its required
-# state, a mock origin, and a metrics endpoint. The scenario
-# clients live in clients/ and are run by the walkthrough.
+# scripts/walkthrough.sh. Brings up the proxy, its required state,
+# a mock origin, optional client services, and a metrics/readiness
+# endpoint. The walkthrough runs the clients from the host via uv.
 #
 # Tunables:
-#   SBPROXY_IMAGE_TAG      proxy image tag (default 1.0)
-#   SBPROXY_LICENSE_KEY    enterprise license; only needed for
-#                          scenarios 3, 5, 6
+#   SBPROXY_VERSION        public sbproxy release tag (default v1.1.0)
 #   DEMO_NAMESPACE         compose project name (default `agentic-demo`)
 
 name: agentic-demo
 
 services:
   sbproxy:
-    # Default to the enterprise image because scenarios 3 (AP2),
-    # 5 (prompt-linked audit), and 6 (trust tier) are enterprise
-    # features. Operators that want OSS-only can override to
-    # ghcr.io/soapbucket/sbproxy:1.0 and skip those scenarios.
-    image: ghcr.io/soapbucket/sbproxy-enterprise:${SBPROXY_IMAGE_TAG:-1.0}
+    build:
+      context: ./sbproxy-image
+      args:
+        SBPROXY_VERSION: ${SBPROXY_VERSION:-v1.1.0}
+    image: agentic-demo-sbproxy:${SBPROXY_VERSION:-v1.1.0}
     container_name: agentic-demo-sbproxy
     depends_on:
       postgres:
@@ -27,23 +25,19 @@ services:
       mock-origin:
         condition: service_started
     environment:
-      # Read at boot. Missing or invalid license disables
-      # scenarios 3, 5, 6 (the proxy still runs).
-      SBPROXY_LICENSE_KEY: ${SBPROXY_LICENSE_KEY:-}
       # Tell the proxy where its state lives.
       DATABASE_URL: postgres://sbproxy:demo@postgres/sbproxy
       REDIS_URL: redis://redis:6379/0
       RUST_LOG: info,sbproxy=info,sbproxy_modules=info
     command:
       - serve
-      - --config
+      - -f
       - /etc/sbproxy/sb.yml
     ports:
       - "127.0.0.1:8080:8080"   # proxy data plane
-      - "127.0.0.1:9090:9090"   # metrics + readyz
     volumes:
       - ./sbproxy-config:/etc/sbproxy:ro
-      - sbproxy-logs:/var/log/sbproxy
+      - demo-logs:/var/log/sbproxy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/readyz"]
@@ -84,9 +78,33 @@ services:
     build:
       context: ./mock-origin
     container_name: agentic-demo-mock-origin
+    volumes:
+      - demo-logs:/var/log/sbproxy
     expose:
       - "3000"
 
+  claude-code-client:
+    image: python:3.12-alpine
+    profiles: ["clients"]
+    working_dir: /demo
+    volumes:
+      - .:/demo:ro
+    command: ["python", "clients/claude_code_like.py", "http://sbproxy:8080/anything"]
+    depends_on:
+      sbproxy:
+        condition: service_healthy
+
+  unsigned-scraper:
+    image: python:3.12-alpine
+    profiles: ["clients"]
+    working_dir: /demo
+    volumes:
+      - .:/demo:ro
+    command: ["python", "clients/unsigned_scraper.py", "http://sbproxy:8080/anything"]
+    depends_on:
+      sbproxy:
+        condition: service_healthy
+
 volumes:
-  sbproxy-logs:
+  demo-logs:
   postgres-data:

@@ -12,6 +12,7 @@ Usage:
 
 import sys
 import time
+import os
 
 # Reuse the minting helper from the happy-path client so both
 # scenarios share the SD-JWT shape. `uv run` sets cwd to the
@@ -27,9 +28,10 @@ import urllib.request
 
 def submit(url: str, sd_jwt: str) -> tuple[int, str]:
     req = urllib.request.Request(url, method="POST", data=b'{"intent":"purchase"}')
-    req.add_header("Host", "demo.local")
+    req.add_header("Host", os.environ.get("DEMO_HOST", "ap2.demo.local"))
     req.add_header("User-Agent", "ap2-replay-demo/0.1")
     req.add_header("Content-Type", "application/json")
+    req.add_header("x-demo-trust-tier", "VerifiedSigned")
     req.add_header("X-Payment-Mandate", sd_jwt)
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:

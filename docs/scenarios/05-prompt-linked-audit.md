@@ -1,28 +1,25 @@
 # Scenario 5 — Prompt-linked audit
 
-**Build tier**: Enterprise.
+**Build tier**: Public demo mode. Enterprise deployments emit this
+from the gateway audit pipeline.
 
 ## What it shows
 
-For every MCP `tools/call` the proxy observes, the audit chain
-gets an `McpPromptLinkedAudit` envelope binding the originating
-prompt (digest + 200-char redacted excerpt) to the tool call
+For every MCP `tools/call` sent through the demo route, the audit
+log gets an `McpPromptLinkedAudit`-shaped envelope binding the
+originating prompt (digest + 200-char excerpt) to the tool call
 (name + arguments digest) plus the resolved agent and human
-sponsor. Answers "what prompt caused this API call?" from one
-row, which is the audit gap the PocketOS 9-second prod-DB
-delete and the Cursor CurXecute / MCPoison incidents share.
+sponsor. Answers "what prompt caused this API call?" from one row.
 
 ## How
 
-The enterprise MCP audit pipeline subscribes to the OSS
-`mcp_audit` structured-log target. On every tool call it pulls
-the prior conversation context out of the request body (or the
-proxy's session state), runs the prompt through the operator's
-PII redactor, and emits the envelope on the hash-chained signed
-audit log.
+The public demo sends the MCP request through sbproxy to the mock
+origin. The mock origin reads `params._meta.conversation`, computes
+the prompt and argument digests, and appends the envelope to
+`/var/log/sbproxy/audit.jsonl` in the shared log volume. In an
+enterprise deployment, this event comes from the gateway audit
+pipeline instead of the mock origin.
 
-The envelope shape lives in
-`sbproxy-enterprise-audit::mcp_prompt::McpPromptLinkedAudit`.
 The fields the operator queries on:
 
 | Field | Use |
@@ -81,8 +78,7 @@ CLI catches the break).
 
 ## Privacy
 
-The full prompt and the raw tool arguments are NEVER on the
-envelope; only digests + the 200-char excerpt that runs through
-the same PII redactor the access log uses. Operators that want
-zero raw-prompt content on the audit chain can also drop the
-excerpt (set `excerpt_max_chars: 0`).
+The full prompt and the raw tool arguments are not persisted in the
+demo envelope; only digests plus the 200-char excerpt are written.
+Enterprise deployments can run that excerpt through the same PII
+redactor the access log uses or set the excerpt length to zero.
