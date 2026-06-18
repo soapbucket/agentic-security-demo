@@ -1,15 +1,9 @@
 """Scenario 4: agent budget enforcement.
 
 Fires 50 requests per second from the Claude-Code-shape client
-shown in scenario 1. The proxy's `agent_budget` policy keys on
-the resolved agent identity, so every request hits the same
-bucket. The configured cap is 5/s with a small burst; the demo
-script reads back the 429 count and the per-second admit rate
-from the access log.
-
-Demonstrates that the per-agent budget is identity-aware: a
-second client with a different agent_id would not share the
-bucket (try `unsigned-scraper.py` in parallel to confirm).
+shown in scenario 1. The public v1.1.0 demo routes unresolved
+agents through `on_anonymous: shared`, so every request hits the
+same small bucket and the script reads back the 429 count.
 
 Usage:
   python agent-budget-burst.py [--duration-secs 5] http://127.0.0.1:8080/anything
@@ -17,6 +11,7 @@ Usage:
 
 import argparse
 import concurrent.futures
+import os
 import sys
 import time
 import urllib.request
@@ -24,9 +19,10 @@ import urllib.request
 
 def fire_one(url: str) -> int:
     req = urllib.request.Request(url, method="GET")
-    req.add_header("Host", "demo.local")
+    req.add_header("Host", os.environ.get("DEMO_HOST", "demo.local"))
     req.add_header("User-Agent", "claude-cli/1.2.3 (external, cli)")
     req.add_header("x-stainless-arch", "arm64")
+    req.add_header("x-demo-trust-tier", "BehaviouralTrusted")
     try:
         with urllib.request.urlopen(req, timeout=2) as resp:
             return resp.status
@@ -48,8 +44,8 @@ def main() -> int:
 
     end = time.time() + args.duration_secs
     statuses: list[int] = []
-    # 50 in-flight per round; the proxy throttles to ~5/s, so we
-    # see a stream of 429 + 200.
+    # 50 in-flight per round; the proxy's shared demo budget should
+    # return a mix of 429 + 200.
     with concurrent.futures.ThreadPoolExecutor(max_workers=50) as pool:
         while time.time() < end:
             batch = [pool.submit(fire_one, args.url) for _ in range(50)]

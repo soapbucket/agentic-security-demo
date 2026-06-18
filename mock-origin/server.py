@@ -1,5 +1,6 @@
-"""Mock origin: echoes the inbound request as JSON, plus the two
-.well-known endpoints the demo's scenarios need.
+"""Mock origin: echoes the inbound request as JSON and emits the
+demo audit events that require enterprise-only sbproxy features in
+production.
 
 Routes:
   GET  /                          alive check (200 "ok")
@@ -12,12 +13,40 @@ Routes:
                                   verifier (scenario 3)
 """
 
+import base64
+import hashlib
 import json
+import os
 import time
 
 from flask import Flask, jsonify, request
 
 app = Flask(__name__)
+AUDIT_LOG = os.environ.get("AUDIT_LOG", "/var/log/sbproxy/audit.jsonl")
+_SEEN_MANDATES: set[str] = set()
+
+
+def _append_audit(event: dict) -> None:
+    os.makedirs(os.path.dirname(AUDIT_LOG), exist_ok=True)
+    event.setdefault("timestamp", int(time.time()))
+    with open(AUDIT_LOG, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(event, sort_keys=True) + "\n")
+
+
+def _jwt_payload(token: str) -> dict:
+    parts = token.split(".")
+    if len(parts) < 2:
+        return {}
+    payload = parts[1]
+    payload += "=" * (-len(payload) % 4)
+    try:
+        return json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
+    except Exception:
+        return {}
+
+
+def _trust_tier() -> str:
+    return request.headers.get("X-Demo-Trust-Tier", "Unknown")
 
 
 @app.get("/")
@@ -27,6 +56,36 @@ def alive() -> tuple[str, int]:
 
 @app.route("/anything", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 def echo():
+    mandate = request.headers.get("X-Payment-Mandate")
+    if mandate:
+        payload = _jwt_payload(mandate)
+        mandate_id = payload.get("jti", "missing-jti")
+        if mandate_id in _SEEN_MANDATES:
+            _append_audit(
+                {
+                    "schema_version": 1,
+                    "action": "MandateReplayRejected",
+                    "target": mandate_id,
+                    "result": "conflict",
+                    "status": 409,
+                    "merchant_id": payload.get("merchant", {}).get("id"),
+                    "rail": "x402",
+                }
+            )
+            return jsonify({"error": "mandate replay", "mandate_id": mandate_id}), 409
+        _SEEN_MANDATES.add(mandate_id)
+        _append_audit(
+            {
+                "schema_version": 1,
+                "action": "MandateVerified",
+                "target": mandate_id,
+                "result": "success",
+                "status": 200,
+                "merchant_id": payload.get("merchant", {}).get("id"),
+                "rail": "x402",
+            }
+        )
+
     # Mirror httpbin's /anything shape so existing demos work.
     payload = {
         "method": request.method,
@@ -35,9 +94,44 @@ def echo():
         "data": request.get_data(as_text=True),
         "origin": request.remote_addr,
         "url": request.url,
+        "demo_trust_tier": _trust_tier(),
         "received_at": int(time.time()),
     }
     return jsonify(payload), 200
+
+
+@app.post("/mcp/v1")
+def mcp_tool_call():
+    body = request.get_json(silent=True) or {}
+    params = body.get("params", {})
+    meta = params.get("_meta", {})
+    conversation = meta.get("conversation", [])
+    prompt = ""
+    for message in conversation:
+        if message.get("role") == "user":
+            prompt = message.get("content", "")
+            break
+    prompt_excerpt = prompt[:200]
+    prompt_digest = "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    tool_arguments = json.dumps(params.get("arguments", {}), sort_keys=True)
+    event = {
+        "schema_version": 1,
+        "event": "McpPromptLinkedAudit",
+        "tool_name": params.get("name"),
+        "tool_arguments_digest": "sha256:"
+        + hashlib.sha256(tool_arguments.encode("utf-8")).hexdigest(),
+        "prompt_digest": prompt_digest,
+        "prompt_excerpt": prompt_excerpt,
+        "agent_id": "claude-code-cli"
+        if request.headers.get("User-Agent", "").startswith("claude-cli/")
+        else "unknown",
+        "human_sponsor": "user:demo@example.com",
+        "mcp_server": "demo-mcp",
+        "upstream_status": 200,
+        "duration_ms": 12,
+    }
+    _append_audit(event)
+    return jsonify({"jsonrpc": "2.0", "id": body.get("id"), "result": {"ok": True}}), 200
 
 
 @app.get("/.well-known/web-bot-auth-keys")

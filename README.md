@@ -3,7 +3,7 @@
 Clone, `docker compose up`, and in 15 minutes you have a running
 proxy demonstrating end-to-end agentic security: agent
 identification, signed-bot verification, payment-mandate
-verification, per-agent rate-limit enforcement, prompt-linked
+verification, agent-budget rate-limit enforcement, prompt-linked
 audit, and per-request trust tiers.
 
 ## Quick start
@@ -11,7 +11,7 @@ audit, and per-request trust tiers.
 ```bash
 git clone https://github.com/soapbucket/agentic-security-demo
 cd agentic-security-demo
-docker compose up -d
+docker compose up -d --build --wait
 uv sync                    # installs the scenario clients' Python deps
 ./scripts/walkthrough.sh
 ```
@@ -31,17 +31,22 @@ replays the same flow in ~5 minutes.
 
 ## What you see
 
-The demo wires six distinct capabilities into one running stack
-and exercises each one with a representative client:
+The demo wires six capabilities into one running stack and
+exercises each one with a representative client. The public
+one-clone path uses the OSS sbproxy release for live gateway
+enforcement of agent detection, Web Bot Auth, and agent budgets;
+the mock origin emits deterministic audit rows for enterprise-only
+AP2 and MCP audit surfaces so the walkthrough still runs without
+private images or licenses.
 
 | # | Scenario | What the demo shows |
 |---|---|---|
 | 1 | **Agent detection** | A fake Claude-Code-shape client is identified by UA + headers + JA4; an unsigned scraper is flagged `Suspicious` instead |
 | 2 | **Web Bot Auth verification** | A signed request from a `Signature-Agent`-shaped signer passes; the same request without the signature is denied |
 | 3 | **AP2 mandate verification** | An x402 payment request carrying a valid AP2 Cart Mandate succeeds; a replayed mandate is rejected with `409 Conflict` |
-| 4 | **Agent budget enforcement** | The fake Claude-Code client fires 50 req/s; the proxy throttles to the configured cap with structured `429`s |
-| 5 | **Prompt-linked audit** | An MCP tool call is captured with the originating prompt + the upstream call linked by a single envelope on the audit chain |
-| 6 | **Trust tier** | Each request shows its computed tier (`VerifiedSigned`, `BehaviouralTrusted`, `Unknown`, `Suspicious`, or `Hostile`) on the access log |
+| 4 | **Agent budget enforcement** | The fake Claude-Code client bursts above the configured public-demo budget; the proxy returns structured `429`s |
+| 5 | **Prompt-linked audit** | An MCP tool call is captured with the originating prompt + the upstream call linked by a single envelope on the demo audit log |
+| 6 | **Trust tier** | Each request shows the expected tier (`VerifiedSigned`, `BehaviouralTrusted`, `Suspicious`) on the access log |
 
 ## Architecture
 
@@ -51,9 +56,9 @@ and exercises each one with a representative client:
                        │  ─────────────────   │
                        │  agent detect        │
   scenario clients ─▶  │  web bot auth        │ ─▶  mock origin
-                       │  AP2 mandate verify  │
+                       │  AP2 demo route      │
                        │  agent budget        │
-                       │  prompt-linked audit │
+                       │  prompt audit route  │
                        └──────────┬───────────┘
                                   │
                        ┌──────────┴───────────┐
@@ -65,8 +70,8 @@ Every container is in `docker-compose.yml`. Operators inspect
 each capability via:
 
 * Access log: `docker compose exec sbproxy tail -F /var/log/sbproxy/access.jsonl`
-* Audit chain: `docker compose exec sbproxy tail -F /var/log/sbproxy/audit.jsonl`
-* Metrics: <http://127.0.0.1:9090/metrics>
+* Demo audit log: `docker compose exec sbproxy tail -F /var/log/sbproxy/audit.jsonl`
+* Metrics: `docker compose exec -T sbproxy wget -qO- http://127.0.0.1:9090/metrics`
 
 ## Build requirements
 
@@ -83,7 +88,7 @@ agentic-security-demo/
 ├── pyproject.toml             ◀ uv sync installs the client deps
 ├── docker-compose.yml         ◀ the full stack
 ├── sbproxy-config/
-│   └── sb.yml                 ◀ proxy config wiring all 6 scenarios
+│   └── sb.yml                 ◀ proxy config wiring the demo hosts
 ├── mock-origin/               ◀ httpbin-shaped target API
 │   └── server.py
 ├── clients/                   ◀ one client per scenario, run via `uv run`
@@ -112,15 +117,15 @@ agentic-security-demo/
 
 ## Build notes
 
-Some scenarios (AP2 mandate verification, prompt-linked audit,
-trust tier) ride on the **SBproxy Enterprise** binary, not the
-OSS sbproxy. The demo's `docker-compose.yml` defaults to the
-enterprise image (`ghcr.io/soapbucket/sbproxy-enterprise:1.0`)
-and reads the license key from `SBPROXY_LICENSE_KEY`. The OSS
-build runs scenarios 1, 2, and 4; trial licenses for the rest
-are available from `legal@soapbucket.com`.
+`docker-compose.yml` builds a local image from the public
+`soapbucket/sbproxy` release tarballs and verifies the published
+SHA-256 checksum during the build. Set `SBPROXY_VERSION=v1.1.0`
+or another release tag to pin the binary.
 
-Each scenario's doc names which build it requires up front.
+The public demo does not pull private GHCR images. Enterprise
+deployments can replace the sbproxy service with the commercial
+image and move the AP2 / MCP audit / trust-tier demo-mode logic
+from the mock origin into gateway policy.
 
 ## License
 

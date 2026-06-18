@@ -19,6 +19,7 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 import time
 import urllib.request
@@ -79,9 +80,10 @@ def main() -> int:
     sd_jwt = mint_cart_mandate(args.mandate_id)
 
     req = urllib.request.Request(args.url, method="POST", data=b'{"intent":"purchase"}')
-    req.add_header("Host", "demo.local")
+    req.add_header("Host", os.environ.get("DEMO_HOST", "ap2.demo.local"))
     req.add_header("User-Agent", "ap2-demo-client/0.1")
     req.add_header("Content-Type", "application/json")
+    req.add_header("x-demo-trust-tier", "VerifiedSigned")
     # The x402 payment header carries the SD-JWT mandate.
     req.add_header("X-Payment-Mandate", sd_jwt)
     try:

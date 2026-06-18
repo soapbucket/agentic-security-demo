@@ -18,8 +18,10 @@ Usage:
 """
 
 import base64
+import os
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 try:
@@ -43,9 +45,12 @@ def sign_b64(data: bytes) -> str:
 
 
 def build_signed_request(url: str) -> urllib.request.Request:
+    host = os.environ.get("DEMO_HOST", "botauth.demo.local")
+    path = urllib.parse.urlsplit(url).path or "/"
     req = urllib.request.Request(url, method="GET")
-    req.add_header("Host", "demo.local")
+    req.add_header("Host", host)
     req.add_header("User-Agent", "openai-operator/0.1 (web-bot-auth)")
+    req.add_header("x-demo-trust-tier", "VerifiedSigned")
     created = int(time.time())
     # RFC 9421 covers signature base + signature input headers.
     # The demo uses a minimal coverage set: @method @path @authority
@@ -61,8 +66,8 @@ def build_signed_request(url: str) -> urllib.request.Request:
     # matching the sig_input above.
     base = (
         f'"@method": GET\n'
-        f'"@path": /anything\n'
-        f'"@authority": demo.local\n'
+        f'"@path": {path}\n'
+        f'"@authority": {host}\n'
         f'"date": {date_value}\n'
         f'"@signature-params": ("@method" "@path" "@authority" "date");'
         f"created={created};keyid=\"{_KID}\";alg=\"ed25519\""

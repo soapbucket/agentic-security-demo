@@ -10,6 +10,7 @@ Usage:
   python unsigned-scraper.py http://127.0.0.1:8080/anything
 """
 
+import os
 import sys
 import urllib.request
 
@@ -17,10 +18,11 @@ import urllib.request
 def main() -> int:
     url = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080/anything"
     req = urllib.request.Request(url, method="GET")
-    req.add_header("Host", "demo.local")
+    req.add_header("Host", os.environ.get("DEMO_HOST", "demo.local"))
     # Generic UA, no identifying headers, no signature. The
     # proxy's policy stack sees an unmatched anonymous request.
     req.add_header("User-Agent", "Mozilla/5.0 (compatible; scraper/0)")
+    req.add_header("x-demo-trust-tier", "Suspicious")
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             print(f"HTTP {resp.status}")

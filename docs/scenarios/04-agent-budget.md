@@ -4,27 +4,28 @@
 
 ## What it shows
 
-A per-agent rate limit keyed on the resolved agent identity. A
-Claude-Code-shape client firing 50/s into a 5/s cap sees the
-proxy admit ~5/s and 429 the rest, with `Retry-After` headers
-on the 429s.
+The `agent_budget` policy returning structured 429s when an
+agent-shaped client exceeds its configured request budget. The
+public artifact uses a shared anonymous bucket so it works with
+the v1.1.0 release binary.
 
 ## How
 
-The proxy's `agent_budget` policy keys the rate-limit bucket on
-`request.agent.id` (the value the `agent_detect` step stamped).
-Bursts above the configured cap return 429 with `Retry-After`.
+In current sbproxy builds, `agent_budget` keys the bucket on the
+resolved `agent_id`. The public v1.1.0 binary used here does not
+accept inline demo agent-class catalogs, so this artifact sets
+`on_anonymous: shared`; the fake Claude-Code burst still drains
+one shared bucket and trips the same 429 path.
 
 Demo config:
 
 ```yaml
 policies:
   - type: agent_budget
-    per_second: 5
-    burst: 10
-    headers:
-      enabled: true
-      include_retry_after: true
+    requests_per_minute: 10
+    burst: 5
+    on_exceed: deny
+    on_anonymous: shared
 ```
 
 ## Demo
@@ -34,23 +35,23 @@ uv run clients/agent_budget_burst.py --duration-secs 5 \
     http://127.0.0.1:8080/anything
 ```
 
-The client fires 50 in-flight requests per second from a single
-agent identity (`claude-code-cli`). Output:
+The client fires 50 in-flight requests from the Claude-Code wire
+shape. Output:
 
 ```
-fired: 250 in 5s (50.0/s)
-  HTTP 200:   30 ( 12.0%)
-  HTTP 429:  220 ( 88.0%)
+fired: 50 in 5s (10.0/s)
+  HTTP 200:   10 ( 20.0%)
+  HTTP 429:   40 ( 80.0%)
 ```
 
-The 200 count (~30) is the 5/s admit rate * 5 seconds + the
-small burst (10). Everything else hit the budget.
+Exact counts can vary with local timing. The important signal is
+that the burst produces HTTP 429 responses after the small bucket
+is exhausted.
 
 Check one of the 429 rows for the `Retry-After`:
 
 ```bash
-docker compose exec sbproxy tail -100 /var/log/sbproxy/access.jsonl \
-    | jq -s '[.[] | select(.response.status == 429)][-1]'
+docker compose exec sbproxy tail -100 /var/log/sbproxy/access.jsonl
 ```
 
 The response includes a `Retry-After: <seconds>` header that
@@ -58,19 +59,18 @@ tells the client when the bucket replenishes.
 
 ## Per-agent isolation
 
-The budget keys on `request.agent.id`, NOT on IP or hostname.
-A second client with a different agent identity hits its own
-bucket. Demonstrate:
+Per-agent isolation is the intended production shape when the
+agent-class resolver catalog contains the agent identities. In the
+public v1.1.0 demo, all unresolved callers share the anonymous
+bucket. To test isolation with a newer build, add catalog entries
+for the demo agents and switch the scenario back to named buckets:
 
 ```bash
-# In one terminal, drive the burst:
-uv run clients/agent_budget_burst.py --duration-secs 10 \
-    http://127.0.0.1:8080/anything &
-
-# In another, hit with a different agent (the unsigned scraper):
-uv run clients/unsigned_scraper.py http://127.0.0.1:8080/anything
+agent_classes:
+  catalog: inline
+  entries:
+    - id: claude-code-cli
+      vendor: Anthropic
+      purpose: assistant
+      expected_user_agent_pattern: "^claude-cli/"
 ```
-
-The scraper's request returns 200 even while the
-`claude-code-cli` bucket is exhausted, because it lives in a
-different budget bucket (`unsigned-anonymous`).

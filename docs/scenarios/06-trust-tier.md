@@ -1,40 +1,32 @@
 # Scenario 6 — Trust tier
 
-**Build tier**: Enterprise.
+**Build tier**: Public demo mode. Enterprise deployments compute the
+tier inside gateway policy.
 
 ## What it shows
 
-Every request the proxy serves is stamped with a computed trust
-tier (`VerifiedSigned` / `BehaviouralTrusted` / `Unknown` /
-`Suspicious` / `Hostile`). One field downstream policies, log
-queries, and dashboards key off, instead of re-deriving the
-verdict from `agent.score` + `bot_auth.verified` + ... at every
-consumer.
+Every request in the public demo is stamped with the expected trust
+tier (`VerifiedSigned` / `BehaviouralTrusted` / `Suspicious`) in
+`custom.demo_trust_tier`. This keeps the one-clone walkthrough
+runnable without the private enterprise classifier while preserving
+the downstream log and dashboard shape.
 
 ## How
 
-The `trust_tier` policy is a closed-enum classifier evaluated
-on every request after agent-detect + bot-auth + behaviour
-signals have run. Tiers are first-match:
+The public config defines a custom access-log field:
 
 ```yaml
-- type: trust_tier
-  levels:
-    - name: VerifiedSigned
-      when: 'request.bot_auth.verified == true'
-    - name: BehaviouralTrusted
-      when: 'request.agent.provenance == "unsigned-named"'
-    - name: Unknown
-      when: 'request.agent.provenance == "unsigned-anonymous"'
-    - name: Suspicious
-      when: 'request.agent.score >= 80 && request.bot_auth.verified == false'
-    - name: Hostile
-      when: 'request.policy.guardrail_hits > 0'
+proxy:
+  observability:
+    log:
+      custom_fields:
+        - name: demo_trust_tier
+          value: "${request.header.x-demo-trust-tier}"
 ```
 
-The verdict lands on `request.trust_tier`, gets stamped on the
-access-log row, and is reachable from any downstream CEL or
-Rego policy as `request.trust_tier`.
+The scenario clients set `X-Demo-Trust-Tier` to the verdict they
+are meant to represent. In an enterprise deployment, that custom
+field is replaced by the gateway-computed classifier result.
 
 ## Demo
 
@@ -42,32 +34,32 @@ Drive a mix of scenarios:
 
 ```bash
 uv run clients/signed_bot.py          http://127.0.0.1:8080/anything
-uv run clients/claude_code_like.py    http://127.0.0.1:8080/anything
-uv run clients/unsigned_scraper.py    http://127.0.0.1:8080/anything
+DEMO_HOST=audit.demo.local \
+  uv run clients/claude_code_like.py  http://127.0.0.1:8080/anything
+DEMO_HOST=audit.demo.local \
+  uv run clients/unsigned_scraper.py  http://127.0.0.1:8080/anything
 ```
 
 Then histogram the recent rows:
 
 ```bash
-docker compose exec sbproxy tail -50 /var/log/sbproxy/access.jsonl \
-    | jq -s 'group_by(.request.trust_tier)
-             | map({tier: .[0].request.trust_tier, count: length})'
+docker compose exec sbproxy tail -10 /var/log/sbproxy/access.jsonl
 ```
 
 Expected:
 
 ```json
 [
-  {"tier": "VerifiedSigned",      "count": 1},
-  {"tier": "BehaviouralTrusted",  "count": 1},
-  {"tier": "Unknown",             "count": 1}
+  {"custom":{"demo_trust_tier":"VerifiedSigned"}},
+  {"custom":{"demo_trust_tier":"BehaviouralTrusted"}},
+  {"custom":{"demo_trust_tier":"Suspicious"}}
 ]
 ```
 
 ## Policy hook
 
-Pair with a CEL deny rule to express "deny anything `Unknown`
-in this origin":
+In a commercial gateway deployment, pair the computed tier with a
+CEL deny rule to express "deny anything unknown in this origin":
 
 ```yaml
 policies:
@@ -77,7 +69,5 @@ policies:
     deny_reason: "unknown_agent_blocked"
 ```
 
-The trust-tier policy is the verdict-producer; the cel policy
-is the verdict-consumer. Both are operator-tunable; the
-trust-tier classifier ships sensible defaults that work
-unchanged for most deployments.
+The trust-tier classifier is the verdict producer; the CEL policy
+is the verdict consumer. Both are operator-tunable.

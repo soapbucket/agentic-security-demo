@@ -18,6 +18,7 @@ Usage:
 """
 
 import json
+import os
 import sys
 import urllib.request
 import uuid
@@ -57,16 +58,17 @@ def main() -> int:
         method="POST",
         data=json.dumps(request_body).encode("utf-8"),
     )
-    req.add_header("Host", "demo.local")
+    req.add_header("Host", os.environ.get("DEMO_HOST", "audit.demo.local"))
     req.add_header("Content-Type", "application/json")
     req.add_header("User-Agent", "claude-cli/1.2.3 (external, cli)")
     req.add_header("x-stainless-arch", "arm64")
+    req.add_header("x-demo-trust-tier", "BehaviouralTrusted")
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             print(f"HTTP {resp.status}")
             print(resp.read().decode("utf-8")[:500])
             print()
-            print("(check the audit chain for the McpPromptLinkedAudit envelope:")
+            print("Check the audit chain for the McpPromptLinkedAudit envelope:")
             print("  docker compose exec sbproxy tail -1 /var/log/sbproxy/audit.jsonl)")
             return 0
     except urllib.error.HTTPError as exc:

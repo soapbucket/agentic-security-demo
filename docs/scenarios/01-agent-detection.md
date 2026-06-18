@@ -1,14 +1,14 @@
 # Scenario 1 — Agent detection
 
-**Build tier**: OSS (works against `ghcr.io/soapbucket/sbproxy:1.0`).
+**Build tier**: OSS public-release image built by this repo.
 
 ## What it shows
 
-The proxy identifies named AI agents (Claude Code, Cursor,
-OpenAI SDK shapes, etc.) from the wire shape of their requests
-(User-Agent + headers + JA4 TLS fingerprint). The same matcher
-flags unknown traffic as `unsigned-anonymous` so downstream
-policy can deny-by-default.
+The proxy runs an ADRF rule-pack scorer over AI-agent wire shapes
+(User-Agent + headers + JA4 TLS fingerprint when available). The
+public walkthrough shows the Claude-Code-shaped request and the
+unsigned scraper side by side, then uses a demo trust-tier field
+to make the expected classification visible in the access log.
 
 ## How
 
@@ -17,16 +17,17 @@ The proxy's `agent_detect` step consumes an ADRF
 rule pack. The demo's pack is at
 `sbproxy-config/baseline.adrf.yaml` and includes two named-agent
 rules: `claude-code-cli` and `openai-operator`. When a request
-matches a rule the proxy stamps:
+matches a rule, the scorer produces:
 
-| Field on request context | Source |
+| Signal | Source |
 |---|---|
-| `agent.id` | rule's `id` |
-| `agent.provenance` | rule's `provenance` (`unsigned-named` for matched, `unsigned-anonymous` for unmatched) |
-| `agent.score` | rule's `score` (0..100) |
+| `request.agent.id` | rule's `id` in policy/CEL context |
+| `request.agent.score` / `confidence` | ADRF rule score |
+| `custom.demo_trust_tier` | demo-mode expected tier stamped by the client |
 
-Every downstream policy and the access log key off these
-fields.
+The v1.1.0 access-log schema does not flatten the ADRF verdict
+into `agent_id` for this synthetic client, so the demo prints the
+wire-shape headers plus `custom.demo_trust_tier`.
 
 ## Demo
 
@@ -43,12 +44,14 @@ The access-log row carries:
 
 ```json
 {
-  "request": {
-    "agent": {
-      "id": "claude-code-cli",
-      "provenance": "unsigned-named",
-      "score": 95
-    }
+  "origin": "demo.local",
+  "status": 200,
+  "user_agent": "claude-cli/1.2.3 (external, cli)",
+  "request_headers": {
+    "x-stainless-arch": "arm64"
+  },
+  "custom": {
+    "demo_trust_tier": "BehaviouralTrusted"
   }
 }
 ```
@@ -59,29 +62,24 @@ Now the negative case:
 uv run clients/unsigned_scraper.py http://127.0.0.1:8080/anything
 ```
 
-This client sends `Mozilla/5.0 (compatible; scraper/0)` with
-no identifying headers. The proxy's matcher returns no rule;
-the trust-tier policy resolves to `Unknown`. The access-log row
-carries:
+This client sends `Mozilla/5.0 (compatible; scraper/0)` with no
+identifying headers. The proxy's matcher returns no named rule.
+The access-log row carries:
 
 ```json
 {
-  "request": {
-    "agent": {
-      "id": "",
-      "provenance": "unsigned-anonymous",
-      "score": 0
-    },
-    "trust_tier": "Unknown"
+  "origin": "demo.local",
+  "status": 200,
+  "custom": {
+    "demo_trust_tier": "Suspicious"
   }
 }
 ```
 
 ## What it does NOT show
 
-The OSS gateway does not deny on `Unknown`. The deny call is a
-trust-tier policy decision that depends on operator intent;
-the demo's policy stack admits everything and stamps the tier
-so the access log carries the verdict. A real deployment pairs
-the stamp with an `if request.trust_tier == "Unknown" then deny`
-CEL policy or its equivalent.
+The OSS gateway does not ship the enterprise trust-tier policy.
+The public demo therefore stamps an expected tier into a custom
+access-log field. In an enterprise deployment, that field is
+replaced by the gateway-computed trust tier and can feed a CEL
+deny policy or its equivalent.

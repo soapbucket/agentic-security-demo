@@ -1,6 +1,7 @@
 # Scenario 3 — AP2 mandate verification
 
-**Build tier**: Enterprise (requires `SBPROXY_LICENSE_KEY`).
+**Build tier**: Public demo mode. Enterprise deployments move this
+check into sbproxy policy.
 
 ## What it shows
 
@@ -11,22 +12,23 @@ Demonstrates the spec-grade replay protection that prevents the
 
 ## How
 
-The proxy's `accept_payment` policy with `rail: x402` +
-`mandate.require: cart` verifies an SD-JWT Cart Mandate per the
-[AP2 v0.2 spec](https://github.com/google-agentic-commerce/ap2).
-Verification steps:
+The public demo sends the request through sbproxy to the mock
+origin. The mock origin decodes the SD-JWT-like mandate fixture,
+records the `jti`, and emits the same audit shape the gateway
+policy would produce in an enterprise deployment. Verification
+steps represented by the demo:
 
 1. Parse the SD-JWT in the `X-Payment-Mandate` header.
-2. Resolve the issuer's JWKS (cached); confirm signature.
-3. Validate the claim set: `vct` is `mandate.checkout.1`, `iat`
+2. Decode the deterministic fixture claim set.
+3. Validate the claim set shape: `vct` is `mandate.checkout.1`, `iat`
    + `exp` within bounds, `merchant.id` matches the operator's
    configured merchant id, `cart.total` matches the request's
    total.
 4. Atomic insert `jti` into the mandate nonce store. On
    conflict, return `409 Conflict` (the replay guard).
 
-On success the proxy emits a `MandateVerified` audit event on
-the hash-chained audit log.
+On success the mock origin emits a `MandateVerified` event to the
+demo audit log mounted into the sbproxy container.
 
 ## Demo
 
@@ -39,13 +41,11 @@ Audit-log row:
 ```json
 {
   "action": "MandateVerified",
-  "target": { "target_kind": "mandate", "jti": "demo-cart-1716..." },
+  "target": "demo-cart-1716...",
   "result": "success",
   "after": {
-    "merchant": "demo.merchant",
-    "vct": "mandate.checkout.1",
-    "cart_total_usd": "49.99"
-  }
+  "merchant_id": "demo.merchant",
+  "rail": "x402"
 }
 ```
 
@@ -62,17 +62,14 @@ returns 200. Second returns:
 HTTP/1.1 409 Conflict
 Content-Type: application/json
 
-{"error":"mandate_replay","jti":"demo-cart-1716..."}
+{"error":"mandate replay","mandate_id":"demo-cart-1716..."}
 ```
 
 The audit log records both: first as `MandateVerified` /
-success, second as `MandateVerified` / failure with
-`decision = ReplayDetected`.
+success, second as `MandateReplayRejected` / conflict.
 
 ## What it does NOT show
 
-The demo's nonce store is in-memory (per-pod). A real multi-pod
-deployment wires the nonce store to Postgres so replay
-detection works across pods. The `accept_payment` policy
-accepts a `nonce_store: postgres` knob the demo does not
-exercise.
+The demo's nonce store is in-memory in the mock-origin process.
+A real multi-pod deployment wires replay protection into the
+gateway's shared state store so detection works across pods.

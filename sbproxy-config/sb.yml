@@ -1,117 +1,84 @@
 # Agentic Security Demo sbproxy config.
-# Wires the six scenarios the walkthrough exercises. Field
-# reference: https://docs.sbproxy.dev/configuration.html
+#
+# OSS sbproxy enforces agent detection, Web Bot Auth, and agent-budget
+# throttling. The mock origin emits deterministic audit rows for AP2
+# replay and MCP prompt-linkage so this public artifact runs without
+# private enterprise images.
 
 proxy:
   http_bind_port: 8080
-  metrics:
-    bind_port: 9090
+  admin:
+    enabled: true
+    port: 9090
 
-  # Trust the upstream-of-proxy CIDR so the demo's client containers
-  # appear as their actual source rather than the Docker bridge.
   trusted_proxies:
     - 172.16.0.0/12
 
-# Single origin: every demo scenario hits the mock-origin service
-# under one hostname. The policy stack on the origin runs every
-# scenario inline.
+  extensions:
+    upstream:
+      allow_private_cidrs:
+        - 172.16.0.0/12
+    agent_detect:
+      enabled: true
+      rule_pack_path: /etc/sbproxy/baseline.adrf.yaml
+
+  observability:
+    log:
+      custom_fields:
+        - name: demo_trust_tier
+          value: "${request.header.x-demo-trust-tier}"
+
+access_log:
+  enabled: true
+  output:
+    type: file
+    path: /var/log/sbproxy/access.jsonl
+    max_size_mb: 25
+    max_backups: 2
+  capture_headers:
+    request:
+      - user-agent
+      - signature-agent
+      - signature-input
+      - x-stainless-arch
+      - x-demo-trust-tier
+
 origins:
   "demo.local":
     action:
       type: proxy
       url: http://mock-origin:3000
-
-    # Scenario 1: Agent detection (OSS). Identifies named agents
-    # by UA + headers + JA4. The unsigned-scraper client gets no
-    # match and is flagged `Suspicious` by the trust-tier policy
-    # below.
-    agent_detect:
-      enabled: true
-      rule_pack: /etc/sbproxy/baseline.adrf.yaml
-
-    # Scenario 2: Web Bot Auth verification (OSS). The `bot_auth`
-    # provider validates RFC 9421 message signatures against the
-    # signer's published key directory.
-    auth:
-      type: bot_auth
-      directory_url: http://mock-origin:3000/.well-known/web-bot-auth-keys
-      allow_unsigned: true   # so scenario 1 + 3 + 4 still flow through; the
-                             # trust-tier policy below records the absence
-
     policies:
-      # Scenario 4: Agent budget enforcement. Each request keys by
-      # the resolved agent identity (from agent_detect above); the
-      # cap is 5/s with a small burst so the walkthrough's 50/s
-      # client trips it visibly.
       - type: agent_budget
-        per_second: 5
-        burst: 10
-        headers:
-          enabled: true
-          include_retry_after: true
+        requests_per_minute: 10
+        burst: 5
+        on_exceed: deny
+        on_anonymous: shared
 
-      # Scenario 3: AP2 mandate verification (ENTERPRISE). The
-      # accept_payment policy gates x402 challenges on a valid AP2
-      # Cart Mandate; replays of the same mandate get 409 from the
-      # mandate nonce store.
-      - type: accept_payment
-        rail: x402
-        mandate:
-          require: cart
-          jwks_url: http://mock-origin:3000/.well-known/ap2-jwks.json
-          merchant_id: demo.merchant
-          replay_protection: true
+  "botauth.demo.local":
+    action:
+      type: proxy
+      url: http://mock-origin:3000
+    authentication:
+      type: bot_auth
+      clock_skew_seconds: 60
+      agents:
+        - name: openai-operator
+          key_id: demo-signer-1
+          algorithm: ed25519
+          public_key: d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+          required_components:
+            - "@method"
+            - "@path"
+            - "@authority"
+            - date
 
-      # Scenario 6: Trust-tier classifier (ENTERPRISE). Computes
-      # `request.trust_tier` based on agent_detect + bot_auth +
-      # behaviour signals; the policy block below stamps it on the
-      # access-log row.
-      - type: trust_tier
-        levels:
-          - name: VerifiedSigned
-            when: 'request.bot_auth.verified == true'
-          - name: BehaviouralTrusted
-            when: 'request.agent.provenance == "unsigned-named"'
-          - name: Unknown
-            when: 'request.agent.provenance == "unsigned-anonymous"'
-          - name: Suspicious
-            when: 'request.agent.score >= 80 && request.bot_auth.verified == false'
-          - name: Hostile
-            when: 'request.policy.guardrail_hits > 0'
+  "ap2.demo.local":
+    action:
+      type: proxy
+      url: http://mock-origin:3000
 
-    # Scenario 5: Prompt-linked audit (ENTERPRISE). Emits an
-    # McpPromptLinkedAudit envelope on every observed MCP
-    # tools/call, with the originating prompt's SHA-256 digest
-    # plus a 200-char PII-redacted excerpt.
-    mcp:
-      audit:
-        prompt_linked: true
-        excerpt_max_chars: 200
-
-# File-backed access log so the walkthrough can tail it. A
-# node-level shipper (Fluent Bit, Vector) would forward in prod;
-# the demo just reads off disk.
-access_log:
-  backend: file
-  path: /var/log/sbproxy/access.jsonl
-  format: json
-  fields:
-    # Every scenario's row carries these so the walkthrough's grep
-    # extracts what each scenario expects to see.
-    - request.method
-    - request.host
-    - request.path
-    - response.status
-    - request.agent.id
-    - request.agent.provenance
-    - request.agent.score
-    - request.bot_auth.verified
-    - request.trust_tier
-    - request.policy.denial_reason
-
-# Audit chain for scenarios 3 + 5 (mandates + prompt-linked
-# tool calls). File backend for the demo; the enterprise build
-# normally writes to a signed-batch S3 sink.
-audit:
-  backend: file
-  path: /var/log/sbproxy/audit.jsonl
+  "audit.demo.local":
+    action:
+      type: proxy
+      url: http://mock-origin:3000
